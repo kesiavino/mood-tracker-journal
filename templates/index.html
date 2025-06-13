@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mood Tracker Journal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Light gray background */
+        }
+        .container {
+            max-width: 900px;
+        }
+        .mood-chip {
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px; 
+            font-weight: 600;
+            font-size: 0.875rem; 
+            line-height: 1.25rem;
+        }
+        /* Mood specific colors for chips */
+        .mood-happy { background-color: #d1fae5; color: #065f46; } 
+        .mood-neutral { background-color: #e0e7ff; color: #3730a3; } 
+        .mood-sad { background-color: #fee2e2; color: #991b1b; } 
+        .mood-anxious { background-color: #fef9c3; color: #a16207; } 
+        .mood-angry { background-color: #ffe4e6; color: #be123c; } 
+        .mood-excited { background-color: #dbeafe; color: #1e40af; } 
+        .mood-calm { background-color: #dcfce7; color: #166534; }
+
+        
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            color: white;
+            font-size: 1.5rem;
+        }
+    </style>
+</head>
+<body class="p-4 sm:p-8">
+
+
+    <div id="loading-overlay" class="loading-overlay hidden">
+        Loading...
+    </div>
+
+    <div class="container mx-auto bg-white p-6 sm:p-8 rounded-xl shadow-lg border border-gray-200">
+        <h1 class="text-3xl sm:text-4xl font-bold text-center mb-8 text-gray-800">Mood Tracker Journal</h1>
+
+        
+        <div id="message-box" class="hidden p-4 mb-4 text-sm rounded-lg" role="alert">
+            <span class="font-medium" id="message-text"></span>
+        </div>
+
+        
+        <div class="mb-12 border-b pb-8 border-gray-200">
+            <h2 class="text-2xl font-semibold mb-6 text-gray-700">Add New Journal Entry</h2>
+            <form id="journal-form" class="space-y-4">
+                <div>
+                    <label for="entry-date" class="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                    <input type="date" id="entry-date" required class="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                </div>
+                <div>
+                    <label for="entry-mood" class="block text-sm font-medium text-gray-700 mb-1">Mood</label>
+                    <select id="entry-mood" required class="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                        <option value="">Select your mood</option>
+                        <option value="happy">Happy 😊</option>
+                        <option value="neutral">Neutral 😐</option>
+                        <option value="sad">Sad 😔</option>
+                        <option value="anxious">Anxious 😟</option>
+                        <option value="angry">Angry 😠</option>
+                        <option value="excited">Excited 🤩</option>
+                        <option value="calm">Calm 😌</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="entry-text" class="block text-sm font-medium text-gray-700 mb-1">Journal Entry</label>
+                    <textarea id="entry-text" rows="4" required class="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm resize-y" placeholder="Write about your day..."></textarea>
+                </div>
+                <button type="submit" class="w-full sm:w-auto px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition ease-in-out duration-150">
+                    Add Entry
+                </button>
+            </form>
+        </div>
+
+        <!-- Mood Trends Chart -->
+        <div class="mb-12 border-b pb-8 border-gray-200">
+            <h2 class="text-2xl font-semibold mb-6 text-gray-700">Mood Trends Over Time</h2>
+            <div class="relative w-full h-80">
+                <canvas id="moodChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Journal Entries Display -->
+        <div>
+            <h2 class="text-2xl font-semibold mb-6 text-gray-700">Your Journal Entries</h2>
+            <div id="journal-entries" class="space-y-6">
+                <p id="no-entries-message" class="text-gray-500 italic text-center hidden">No entries yet. Add your first entry above!</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+       
+        const API_BASE_URL = window.location.protocol === 'file:' ?
+                             'http://127.0.0.1:5000/api/entries' :
+                             `${window.location.origin}/api/entries`;
+
+        console.log(`Frontend is attempting to connect to: ${API_BASE_URL}`); // Log the API URL for debugging
+
+        const journalForm = document.getElementById('journal-form');
+        const entryDateInput = document.getElementById('entry-date');
+        const entryMoodSelect = document.getElementById('entry-mood');
+        const entryTextInput = document.getElementById('entry-text');
+        const journalEntriesDiv = document.getElementById('journal-entries');
+        const noEntriesMessage = document.getElementById('no-entries-message');
+        const messageBox = document.getElementById('message-box');
+        const messageText = document.getElementById('message-text');
+        const loadingOverlay = document.getElementById('loading-overlay');
+
+        let moodChartInstance = null; // To store the Chart.js instance
+
+        // Mood-to-color mapping for charts and chips
+        const moodColors = {
+            'happy': { bg: '#d1fae5', text: '#065f46', chart: '#4CAF50' },   // Green
+            'neutral': { bg: '#e0e7ff', text: '#3730a3', chart: '#9E9E9E' }, // Gray/Indigo
+            'sad': { bg: '#fee2e2', text: '#991b1b', chart: '#F44336' },     // Red
+            'anxious': { bg: '#fef9c3', text: '#a16207', chart: '#FFC107' }, // Yellow
+            'angry': { bg: '#ffe4e6', text: '#be123c', chart: '#E91E63' },   // Pink
+            'excited': { bg: '#dbeafe', text: '#1e40af', chart: '#2196F3' }, // Blue
+            'calm': { bg: '#dcfce7', text: '#166534', chart: '#8BC34A' }     // Light Green
+        };
+
+        // Function to display a message to the user
+        function showMessage(text, type = 'success') {
+            messageText.textContent = text;
+            messageBox.classList.remove('hidden', 'bg-red-100', 'text-red-800', 'bg-green-100', 'text-green-800');
+            if (type === 'error') {
+                messageBox.classList.add('bg-red-100', 'text-red-800');
+            } else {
+                messageBox.classList.add('bg-green-100', 'text-green-800');
+            }
+            setTimeout(() => {
+                messageBox.classList.add('hidden');
+            }, 5000); // Hide after 5 seconds
+        }
+
+        // Function to show/hide loading overlay
+        function toggleLoading(show) {
+            if (show) {
+                loadingOverlay.classList.remove('hidden');
+            } else {
+                loadingOverlay.classList.add('hidden');
+            }
+        }
+
+        // Function to render a single journal entry HTML
+        function renderEntry(entry) {
+            const entryElement = document.createElement('div');
+            entryElement.className = 'bg-gray-50 p-4 rounded-lg shadow-sm border border-gray-100 flex flex-col md:flex-row md:items-start md:justify-between';
+            const moodClass = `mood-${entry.mood}`; // Dynamic class for mood chip
+
+            entryElement.innerHTML = `
+                <div class="mb-2 md:mb-0 md:w-3/4">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-1">${entry.date}</h3>
+                    <p class="text-gray-700 leading-relaxed whitespace-pre-wrap">${entry.entry_text}</p>
+                </div>
+                <div class="md:w-1/4 md:text-right flex justify-between items-center md:flex-col md:items-end">
+                    <span class="mood-chip ${moodClass} mb-2 md:mb-0">${entry.mood.charAt(0).toUpperCase() + entry.mood.slice(1)}</span>
+                    <button data-id="${entry.id}" class="delete-btn text-red-600 hover:text-red-800 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 rounded-full p-2 transition duration-150 ease-in-out">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm6 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clip-rule="evenodd" />
+                        </svg>
+                    </button>
+                </div>
+            `;
+            
+            entryElement.querySelector('.delete-btn').addEventListener('click', handleDeleteEntry);
+            return entryElement;
+        }
+
+        // Function to fetch and display all journal entries
+        async function fetchEntries() {
+            toggleLoading(true);
+            try {
+                const response = await fetch(API_BASE_URL, { mode: 'cors' }); // Explicitly set mode to 'cors'
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const entries = await response.json();
+                journalEntriesDiv.innerHTML = ''; // Clear existing entries
+                if (entries.length === 0) {
+                    noEntriesMessage.classList.remove('hidden');
+                } else {
+                    noEntriesMessage.classList.add('hidden');
+                    entries.forEach(entry => {
+                        journalEntriesDiv.appendChild(renderEntry(entry));
+                    });
+                }
+                updateMoodChart(entries); // Update the chart with new data
+            } catch (error) {
+                console.error('Error fetching entries:', error);
+                showMessage('Failed to load entries. Please ensure the Flask backend is running and accessible.', 'error');
+            } finally {
+                toggleLoading(false);
+            }
+        }
+
+        // Function to handle form submission
+        journalForm.addEventListener('submit', async (event) => {
+            event.preventDefault(); // Prevent default form submission
+
+            const date = entryDateInput.value;
+            const mood = entryMoodSelect.value;
+            const entryText = entryTextInput.value.trim();
+
+            if (!date || !mood || !entryText) {
+                showMessage('Please fill in all fields.', 'error');
+                return;
+            }
+
+            toggleLoading(true);
+            try {
+                const response = await fetch(API_BASE_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ date, mood, entry_text: entryText }),
+                    mode: 'cors' // Explicitly set mode to 'cors'
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.error || `HTTP error! status: ${response.status}`);
+                }
+
+                showMessage('Entry added successfully!', 'success');
+                journalForm.reset(); // Clear the form
+                entryDateInput.valueAsDate = new Date(); // Reset date to today
+                fetchEntries(); // Refresh the list of entries and chart
+            } catch (error) {
+                console.error('Error adding entry:', error);
+                showMessage(`Failed to add entry: ${error.message}. Please ensure the Flask backend is running and accessible.`, 'error');
+            } finally {
+                toggleLoading(false);
+            }
+        });
+
+        // Function to handle deleting a journal entry (placeholder - backend needs delete route)
+        async function handleDeleteEntry(event) {
+            const entryId = event.currentTarget.dataset.id;
+
+            // Flask backend MVP doesn't have a DELETE route yet,
+            // just show a message indicating it's not implemented.
+            showMessage(`Delete functionality for entry ID ${entryId} not yet implemented in backend MVP.`, 'error');
+            console.log(`Attempted to delete entry with ID: ${entryId}`);
+
+        // Function to update the mood chart
+        function updateMoodChart(entries) {
+            const moodValues = { 'sad': 1, 'anxious': 2, 'neutral': 3, 'calm': 4, 'happy': 5, 'excited': 6, 'angry': 2.5 }; // Assign numerical values to moods for charting
+
+            // Sort entries by date for the chart
+            const sortedEntries = [...entries].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            const labels = sortedEntries.map(entry => entry.date);
+            const data = sortedEntries.map(entry => moodValues[entry.mood] || 0); // Default to 0 if mood not found
+            const backgroundColors = sortedEntries.map(entry => moodColors[entry.mood]?.chart || '#CCCCCC'); // Get chart color
+
+            const ctx = document.getElementById('moodChart').getContext('2d');
+
+            if (moodChartInstance) {
+                moodChartInstance.destroy(); // Destroy previous chart instance if exists
+            }
+
+            moodChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Mood Level',
+                        data: data,
+                        backgroundColor: backgroundColors,
+                        borderColor: '#6366f1', 
+                        borderWidth: 2,
+                        pointBackgroundColor: backgroundColors,
+                        pointBorderColor: backgroundColors,
+                        pointRadius: 6,
+                        pointHoverRadius: 8,
+                        tension: 0.3, 
+                        fill: false 
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            type: 'time', 
+                            time: {
+                                unit: 'day',
+                                tooltipFormat: 'MMM D, YYYY',
+                                displayFormats: {
+                                    day: 'MMM D'
+                                }
+                            },
+                            title: {
+                                display: true,
+                                text: 'Date',
+                                color: '#4b5563'
+                            },
+                            grid: {
+                                display: false 
+                            }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            max: 6.5,
+                            ticks: {
+                                
+                                callback: function(value, index, values) {
+                                    const moodLabels = Object.keys(moodValues).find(key => moodValues[key] === value);
+                                    return moodLabels ? moodLabels.charAt(0).toUpperCase() + moodLabels.slice(1) : '';
+                                },
+                                stepSize: 1 
+                            },
+                            title: {
+                                display: true,
+                                text: 'Mood',
+                                color: '#4b5563'
+                            },
+                            grid: {
+                                color: '#e5e7eb' 
+                            }
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const moodLabel = Object.keys(moodValues).find(key => moodValues[key] === context.parsed.y);
+                                    return `Mood: ${moodLabel ? moodLabel.charAt(0).toUpperCase() + moodLabel.slice(1) : 'N/A'}`;
+                                }
+                            }
+                        },
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+        }
+
+
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            // Set default date to today
+            const today = new Date();
+            const year = today.getFullYear();
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const day = String(today.getDate()).padStart(2, '0');
+            entryDateInput.value = `${year}-${month}-${day}`;
+
+            fetchEntries();
+        });
+    }
+    </script>
+</body>
+</html>

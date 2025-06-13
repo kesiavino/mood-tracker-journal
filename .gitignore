@@ -1,0 +1,19 @@
+# Python virtual environment
+venv/
+__pycache__/
+*.pyc
+
+# SQLite database file
+mood_journal.db
+
+# Flask specific
+.flaskenv
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# IDE specific files (if any)
+.vscode/
+*.iml
+.idea/
